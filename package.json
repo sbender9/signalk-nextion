@@ -1,0 +1,25 @@
+{
+  "name": "signalk-nextion",
+  "version": "1.0.0",
+  "description": "SignalK Node Server Plugin that sends data to a Nextion Display",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "signalk-node-server-plugin"
+  ],
+  "author": "scott@scottbender.net",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "decamelize": "^3.2.0",
+    "lodash": "^4.17.15",
+    "serialport": "^7.1.5",
+    "suncalc": "^1.8.0",
+    "titleize": "^2.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sbender9/signalk-nextion"
+  }
+}
