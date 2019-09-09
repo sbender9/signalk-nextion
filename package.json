@@ -4,7 +4,9 @@
   "description": "SignalK Node Server Plugin that sends data to a Nextion Display",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "create-release": "github-create-release --owner canboat --repository canboatjs",
+    "release": "git tag -d v$npm_package_version && git tag v$npm_package_version && git push --tags && git push && npm run create-release"
   },
   "keywords": [
     "signalk-node-server-plugin"
@@ -21,5 +23,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/sbender9/signalk-nextion"
+  },
+  "devDependencies": {
+    "@signalk/github-create-release": "^1.0.2"
   }
 }
