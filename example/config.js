@@ -9,15 +9,37 @@ const dayBarColor = 1024
 const buttonOnColor = 1024
 const buttonOffColor = 50712
 const buttonChangedColor = 65504
+
 const buttonOnPic = 5
 const buttonOffPic = 4
-const buttonUnknownPic = 6
+const buttonCHangingPic = 18
 
-function buttonPic(v) {
-  return (v == 0) ? buttonOffPic : buttonOnPic
-}
   
 module.exports = (app, options, utils) => {
+  function buttonPic(v) {
+    if ( utils.getCurrentMode() == 'night' ) {
+      return (v == 0) ? 8 : 9
+    } else {
+      return (v == 0) ? buttonOffPic : buttonOnPic
+    }
+  }
+
+  function buttonUnknownPic() {
+    if ( utils.getCurrentMode() == 'night' ) {
+      return 7
+    } else {
+      return 6
+    }
+  }
+
+  function changingSwitchPic(mode, val) {
+    if ( mode == 'night' ) {
+      return val == 1 ? 24 : 23
+    } else {
+      return val == 1 ? 25 : 26
+    }
+  }
+
   let config = {
     nightTextColor: 55296,
     dayTextColor: 65535,
@@ -25,6 +47,52 @@ module.exports = (app, options, utils) => {
     dayBarColor: 1024,
     buttonChangedColor: 65504,
 
+    colorVars: {
+      'Battery.textColor': {
+        day: 65535,
+        night: 55296
+      },
+      'Battery.barColor': {
+        day: 7748,
+        night: 55296
+      },
+      'Battery.tabTextC': {
+        day: 0,
+        night: 55296
+      },
+      'Battery.tabBackC': {
+        day: 50712,
+        night: 0
+      },
+      'Battery.sTabTextC': {
+        day: 0,
+        night: 55296
+      },
+      'Battery.sTabBackC': {
+        day: 7748,
+        night: 32768
+      },
+      'Battery.waveGridC': {
+        day: 65535,
+        night: 32768
+      },
+      'Battery.waveChannelC': {
+        day: 7748,
+        night: 55296
+      }
+    },
+
+    modeCommands: mode =>
+      {
+        const wpic = mode === 'night' ? 14 : 0
+        const bpic = mode === 'night' ? 16 : 15
+        return [
+          `Weather.Weather.pic=${wpic}`,
+          `Weather.windG.picc=${wpic}`,
+          `Battery.Battery.pic=${bpic}`
+        ]
+      },
+    
     devices: [
       {
         pages: {
@@ -36,6 +104,13 @@ module.exports = (app, options, utils) => {
                 path: 'electrical.batteries.260.capacity.stateOfCharge',
                 format: v => `${(v*100).toFixed(0)}%`,
                 unknown: '---%'
+              },
+              {
+                objname: 'j0',
+                type: 'val',
+                path: 'electrical.batteries.260.capacity.stateOfCharge',
+                format: v => (v*100).toFixed(0),
+                unknown: 0
               },
               {
                 objname: 'cmode',
@@ -66,11 +141,7 @@ module.exports = (app, options, utils) => {
                   if ( !v ) {
                     return '--:--'
                   } else {
-                    const hours = v / 3600;
-                    const remainder = v - hours * 3600;
-                    const mins = remainder / 60;
-                    
-                    return `${hours.toFixed(0)}:${mins.toFixed(0)}`
+                    return utils.secondsToHoursMinutes(v)
                   }
                 },
                 unknown: '--:--'
@@ -108,42 +179,32 @@ module.exports = (app, options, utils) => {
                 type: 'pic',
                 path: 'electrical.chargers.261.modeNumber',
                 format: v => {
-                  switch ( v ) {
-                  case 3:
-                    return 1
-                  case 4:
-                    return 2
-                  case 1:
-                    return 3
-                  default:
-                    return 2
+                  if ( utils.getCurrentMode() === 'day' ) {
+                    switch ( v ) {
+                    case 3:
+                      return 1
+                    case 4:
+                      return 2
+                    case 1:
+                      return 3
+                    default:
+                      return 13
+                    }
+                  } else {
+                    switch ( v ) {
+                    case 3:
+                      return 10
+                    case 4:
+                      return 11
+                    case 1:
+                      return 12
+                    default:
+                      return 13
+                    }
                   }
                 },
-                unknown: 2
+                unknown: utils.getCurrentMode() === 'day' ? 13 : 14
               },
-              /*
-                {
-                objname: 'b0',
-                type: 'bco',
-                path: 'electrical.chargers.261.modeNumber',
-                format: v => (v == 3) ? buttonOnColor : buttonOffColor,
-                unknown: buttonOffColor
-                },
-                {
-                objname: 'b5',
-                type: 'bco',
-                path: 'electrical.chargers.261.modeNumber',
-                format: v => (v == 4) ? buttonOnColor : buttonOffColor,
-                unknown: buttonOffColor
-                },
-                {
-                objname: 'b6',
-                type: 'bco',
-                path: 'electrical.chargers.261.modeNumber',
-                format: v => (v == 1) ? buttonOnColor : buttonOffColor,
-                unknown: buttonOffColor
-                },
-              */
               {
                 objname: 'p1',
                 type: 'pic',
@@ -153,57 +214,60 @@ module.exports = (app, options, utils) => {
               },
             ],
             buttons: {
-              16: {
-                objname: 'm0',
-                type: 'hs',
+              chargeOn: {
+                //On
                 path: 'electrical.chargers.261.modeNumber',
-                value: 3
+                value: 3,
+                pictureObj: 'p0',
+                changingPicture: m => m == 'night' ? 21 : 18
               },
-              17: {
-                objname: 'm1',
-                type: 'hs',
+              chargeOff: {
+                //Off
                 path: 'electrical.chargers.261.modeNumber',
-                value: 4
+                value: 4,
+                pictureObj: 'p0',
+                changingPicture: m => m == 'night' ? 20 : 14
               },
-              18: {
-                objname: 'm2',
-                type: 'hs',
+              chargeOnly: {
+                //Charge
                 path: 'electrical.chargers.261.modeNumber',
-                value: 1
+                value: 1,
+                pictureObj: 'p0',
+                changingPicture: m => m == 'night' ? 22 : 19
               },
-              20: {
-                type: 'hs',
-                objname: 'm3',
+              acr: {
                 path: 'electrical.switches.acr.state',
-                value: utils.toggle
+                value: utils.toggle,
+                changingPicture: changingSwitchPic,
+                pictureObj: 'p1'
               },
             }
           },
           1: {
             values: [
               {
-                objname: 'p0',
+                objname: 'p1',
                 type: 'pic',
                 path: 'electrical.switches.anchorLight.state',
                 format: buttonPic,
                 unknown: buttonUnknownPic
               },
               {
-                objname: 'p1',
+                objname: 'p0',
                 type: 'pic',
                 path: 'electrical.switches.bank.yd.runningLights.state',
                 format: buttonPic,
                 unknown: buttonUnknownPic
               },
               {
-                objname: 'p2',
+                objname: 'p3',
                 type: 'pic',
                 path: 'electrical.switches.bank.yd.foredeckLight.state',
                 format: buttonPic,
                 unknown: buttonUnknownPic
               },
               {
-                objname: 'p3',
+                objname: 'p2',
                 type: 'pic',
                 path: 'electrical.switches.bank.yd.steamingLight.state',
                 format: buttonPic,
@@ -225,72 +289,78 @@ module.exports = (app, options, utils) => {
               },
             ],
             buttons: {
-              19: {
-                objname: 'p0',
+              anchor: {
                 path: 'electrical.switches.anchorLight.state',
-                value: utils.toggle
+                value: utils.toggle,
+                changingPicture: changingSwitchPic,
+                pictureObj: 'p1'
               },
-              18: {
-                objname: 'b1',
+              running: {
                 path: 'electrical.switches.bank.yd.runningLights.state',
-                value: utils.toggle
+                value: utils.toggle,
+                changingPicture: changingSwitchPic,
+                pictureObj: 'p0'
               },
-              21: {
-                objname: 'b2',
-                path: 'electrical.switches.bank.yd.fordeckLight.state',
-                value: utils.toggle
+              foreDeck: {
+                path: 'electrical.switches.bank.yd.foredeckLight.state',
+                value: utils.toggle,
+                changingPicture: changingSwitchPic,
+                pictureObj: 'p3'
               },
-              20: {
-                objname: 'b3',
+              steaming: {
                 path: 'electrical.switches.bank.yd.steamingLight.state',
-                value: utils.toggle
+                value: utils.toggle,
+                changingPicture: changingSwitchPic,
+                pictureObj: 'p2'
               },
-              22: {
-                objname: 'b4',
+              cabin: {
                 path: 'electrical.switches.hue.groups.cabin.state',
-                value: utils.toggle
+                value: utils.toggle,
+                changingPicture: changingSwitchPic,
+                pictureObj: 'p4'
               },
-              23: {
-                objname: 'b5',
+              vBirth: {
                 path: 'electrical.switches.hue.groups.vBirth.state',
-                value: utils.toggle
-              },
+                value: utils.toggle,
+                changingPicture: changingSwitchPic,
+                pictureObj: 'p5'
+              }
             }
           },
           2: {
             values: [
               {
-                objname: 'z0',
+                objname: 'windG',
                 type: 'gauge',
-                path: 'navigation.headingMagnetic',
-                format: v => (degToGauge(radsToDeg(v)).toFixed(0))
+                path: 'environment.wind.angleApparent',
+                format: v => (utils.degToGauge(utils.radsToDeg(v)).toFixed(0))
               },
               {
                 objname: 't0',
                 type: 'txt',
                 path: 'environment.wind.speedApparent',
-                format: v => `${(v*1.94384).toFixed(0)}kts`,
+                format: v => `${utils.msToKnots(v).toFixed(0)}kts`,
                 unknown: '---kts'
               },
               {
                 objname: 't1',
                 type: 'txt',
                 path: 'environment.inside.temperature',
-                format: v => `${KtoF(v).toFixed(0)}°`,
+                format: v => `${utils.KtoF(v).toFixed(0)}°`,
                 unknown: '--°'
               },
               {
                 objname: 't4',
                 type: 'txt',
                 path: 'environment.water.temperature',
-                format: v => `${KtoF(v).toFixed(0)}°`,
+                format: v => `${utils.KtoF(v).toFixed(0)}°`,
                 unknown: '--°'
               },
               {
                 objname: 't6',
                 type: 'txt',
                 path: 'environment.inside.refrigerator.temperature',
-                format: v => `${KtoF(v).toFixed(0)}°`,
+                format: v => `${utils.KtoF(v).toFixed(0)}°`,
                 unknown: '--°'
               },
               {
@@ -299,6 +369,17 @@ module.exports = (app, options, utils) => {
                 path: 'environment.inside.refrigerator.relativeHumidity',
                 format: v => `${(v*100).toFixed(0)}%`,
                 unknown: '---%'
+              },
+              {
+                objname: 's0',
+                type: 'wave',
+                path: 'environment.wind.speedApparent',
+                format: v => (utils.msToKnots(v)).toFixed(0),
+                channel: 0,
+                id: 14,
+                rangeHi: 30,
+                rangeLo: 0,
+                height: 81
               },
             ]
           },
@@ -323,6 +404,27 @@ module.exports = (app, options, utils) => {
                 type: 'val',
                 path: 'tanks.blackWater.0.currentLevel',
                 format: v => ((v*100).toFixed(0)),
+                unknown: 0
+              },
+              {
+                objname: 't2',
+                type: 'txt',
+                path: 'tanks.fuel.0.currentLevel',
+                format: v => `${((v*100).toFixed(0))}%`,
+                unknown: 0
+              },
+              {
+                objname: 't3',
+                type: 'txt',
+                path: 'tanks.freshWater.0.currentLevel',
+                format: v => `${((v*100).toFixed(0))}%`,
+                unknown: 0
+              },
+              {
+                objname: 't5',
+                type: 'txt',
+                path: 'tanks.blackWater.0.currentLevel',
+                format: v => `${((v*100).toFixed(0))}%`,
                 unknown: 0
               },
             ]

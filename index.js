@@ -28,10 +28,17 @@ module.exports = function(app) {
   };
   let onStop = []
   var statusMessage
-  var currentPage
-  var currentMode
   var config
   var options
+  var deviceData = {}
+  var currentMode
+
+  /*
+  var currentPage
+  var changingPaths = []
+  var pagingInterval
+  var pagingPausedTime = 0
+  */
 
   plugin.id = PLUGIN_ID
   plugin.name = "Nextion"
@@ -50,35 +57,40 @@ module.exports = function(app) {
               type: "string",
               title: "USB Device Name",
               default: "/dev/ttyUSB0"
+            },
+            sleep: {
+              type: 'number',
+              title: 'Sleep in seconds (0 = no sleep)',
+              default:0 
+            },
+            autoNightMode: {
+              type: 'boolean',
+              title: 'Auto Night Mode',
+              default: true
+            },
+            nightModeDim: {
+              type: 'number',
+              title: 'Night Mode Dimming Level (1-100)',
+              default: 33
+            },
+            dayModeDim: {
+              type: 'number',
+              title: 'Day Mode Dimming Level (1-100)',
+              default: 100
+            },
+            advancePages: {
+              type: 'number',
+              title: 'Flip through all the pages with the given interval in seconds',
+              description: "0 means don't flip",
+              default:0
+            },
+            advancePagePause: {
+              type: 'number',
+              title: 'Pause flipping when a page is manually selected in seconds',
+              default: 5
             }
           }
         }
-      },
-      autoNightMode: {
-        type: 'boolean',
-        title: 'Auto Night Mode',
-        default: true
-      },
-      nightModeDim: {
-        type: 'number',
-        title: 'Night Mode Dimming Level (1-100)',
-        default: 33
-      },
-      dayModeDim: {
-        type: 'number',
-        title: 'Day Mode Dimming Level (1-100)',
-        default: 100
-      },
-      advancePages: {
-        type: 'number',
-        title: 'Flip through all the pages with the given timeout in seconds',
-        description: "0 means don't flip",
-        default:0
-      },
-      advancePagePause: {
-        type: 'number',
-        title: 'Pause flipping when a page is manually selected in seconds',
-        default: 5
       }
     }
   }
@@ -101,7 +113,13 @@ module.exports = function(app) {
       radsToDeg,
       KtoF,
       degToGauge,
-      toggle
+      toggle,
+      secondsToHoursMinutes,
+      msToKnots,
+      getCurrentMode: () => {
+        app.debug(`currentMode: ${currentMode}`)
+        return currentMode
+      }
     })
 
     if ( !options.devices ) {
@@ -111,6 +129,7 @@ module.exports = function(app) {
     
     plugin.serialPorts = []
     options.devices.forEach((device, index) => {
+      deviceData[index] = { changingPaths: [], pagingPausedTime: 0 }
       plugin.connect(device.usbDevice, index)
     })
 
@@ -158,31 +177,45 @@ module.exports = function(app) {
         function () {
           const parser = new SerialPort.parsers.Delimiter({delimiter: Buffer.from([0xff, 0xff, 0xff])})
           serial.pipe(parser)
-
-          write(index, 'sendme')
-          
+     
           parser.on('data', data => {
             parseData(data, index)
           });
-          setProviderStatus('Connected, wating for data...')
+
+          setTimeout(() => {
+            deviceData[index].sentPage = true
+            write(index, 'sendme')
+            const sleep = !_.isUndefined(options.devices[index].sleep) ? options.devices[index].sleep > 0 && options.devices[index].sleep < 3 ? 3 : options.devices[index].sleep : 0
+            setTimeout(() => {
+              write(index, `thsp=${sleep}`)
+              write(index, `thup=1`)
+
+              deviceData[index].pagingInterval = setInterval(() => {
+                advancePage(index)
+              }, options.devices[index].advancePages * 1000)
+            }, 1000)
+          }, 1000)
+          
+          setProviderStatus('Connected')
         }
       )
-      
       
       serial.on('error', function (err) {
         app.error(err.toString())
         setProviderError(err.toString())
         scheduleReconnect(usbDevice, index)
       })
-      serial.on('close', function() {
-        app.debug("close")
-        setProviderError('Closed')
-        scheduleReconnect(usbDevice, index)
-      })
+      serial.on('close', onClose)
     } catch ( err ) {
       app.error(err)
       setProviderError(err.message)
     }
+  }
+
+  function onClose() {
+    app.debug("close")
+    setProviderError('Closed')
+    scheduleReconnect(usbDevice, index)
   }
 
   function scheduleReconnect(usbDevice, index) {
@@ -190,6 +223,8 @@ module.exports = function(app) {
     const msg = `Not connected (retry delay ${(
     delay / 1000
   ).toFixed(0)} s)`
+    deviceData[index].currentPage = undefined
+    deviceData[index].currentMode = undefined
     console.log(msg)
     setProviderStatus(msg)
     setTimeout(plugin.connect.bind(plugin, usbDevice, index), delay)
@@ -203,30 +238,38 @@ module.exports = function(app) {
   plugin.stop = function() {
     onStop.forEach(f => f())
     onStop = []
+    app.debug(`stopping ${plugin.serialPorts}`)
     if ( plugin.serialPorts ) { 
-      plugin.serialPorts.forEach(serial => {
+      plugin.serialPorts.forEach((serial, index) => {
+        serial.removeListener('close', onClose)
         serial.close()
+        if ( deviceData[index].pagingInterval ) {
+          clearInterval(deviceData[index].pagingInterval)
+        }
       })
+      plugin.serialPorts = []
     }
+    deviceData = {}
   }
 
   function gotDelta(delta) {
-    if ( _.isUndefined(currentPage) ) {
-      return
-    }
-    
     if ( delta.updates ) {
       delta.updates.forEach(update => {
         update.values.forEach(vp => {
           config.devices.forEach((device, index) => {
-            let items = device.pages[currentPage].values.filter(item => {
-              return item.path == vp.path
-            })
-            items.forEach(item => {
-              displayItem(index, item, vp.value)
-            })
-            if ( vp.path == 'navigation.position' && options.autoNightMode ) {
-              setMode(index, calculateMode())
+            if ( !_.isUndefined(deviceData[index].currentPage) ) {
+              let items = device.pages[deviceData[index].currentPage].values.filter(item => {
+                return item.path == vp.path
+              })
+              items.forEach(item => {
+                displayItem(index, item, vp.value)
+              })
+              let auto = options.devices[index].autoNightMode
+              if ( vp.path == 'navigation.position' && (_.isUndefined(auto) ||  auto) ) {
+                if ( setMode(index, calculateMode()) ) {
+                  blankPage(index)
+                }
+              }
             }
           })
         })
@@ -242,15 +285,23 @@ module.exports = function(app) {
         write(index, `vis ${item.objname},0`)
         item.isHidden = true
         return
+      } else if ( item.type == 'wave' ) {
+        write(index, `cle ${item.id},${item.channel}`)
+        return
       } else if ( !_.isUndefined(item.unknown) ) {
-        value = item.unknown
+        value = typeof item.unknown === 'function' ? item.unknown() : item.unknown
       } else {
         return
       }
     } else if ( item.format ) {
       value = item.format(value)
     }
-    
+
+    if ( deviceData[index].changingPaths.indexOf(item.path) != -1 ) {
+      //FIXME: show the changingPicture
+      return 
+    }
+
     if ( item.isHidden ) {
       app.debug('Showing %s', item.objname)
       write(index, `vis ${item.objname},1`)
@@ -261,7 +312,19 @@ module.exports = function(app) {
     if ( type === 'gauge' ) {
       type = 'val'
     }
-    if ( type === 'txt' ) {
+    if ( type == 'wave' ) {
+      if ( value > item.rangeHi )
+        value = item.rangeHi
+      else if ( value < item.rangeLo ) {
+        value = item.rangeLo
+      }
+
+      let top = item.rangeHi - item.rangeLo
+      value = value - item.rangeLo
+      value = ((value / item.rangeHi) * item.height).toFixed(0)
+      
+      command = `add ${item.id},${item.channel},${value}`
+    } else if ( type === 'txt' ) {
       command = `${item.objname}.txt="${value}"`
     } else {
       command = `${item.objname}.${type}=${value}`
@@ -279,19 +342,20 @@ module.exports = function(app) {
 
     switch ( data[0] ) {
     case 0x66:
-      let firstTime = _.isUndefined(currentPage) 
-      if ( data[1] != currentPage ) {
+      let firstTime = _.isUndefined(deviceData[index].currentPage) 
+      if ( data[1] != deviceData[index].currentPage ) {
         app.debug(`On Page ${data[1]}`)
-        currentPage = data[1]
+        deviceData[index].currentPage = data[1]
         blankPage(index)
       }
 
-      /*
-      if ( firstTime ) {
-        pagingInterval = setInterval(advancePage, 5000)
+      if ( !deviceData[index].sentPage ) {
+        if ( options.devices[index].advancePages ) {
+          deviceData[index].pagingPausedTime = Date.now();
+        }
       } else {
-        //clearInterval(pagingInterval)
-      }*/
+        deviceData[index].sentPage = false
+      }
       
       break
     case 0x65:
@@ -300,27 +364,44 @@ module.exports = function(app) {
       const event = data[3]
       buttonPress(page, component, event, index)
       break
+
+    case 0x70:
+      const str = Buffer.from(data.slice(1)).toString()
+      const parts = str.split(':')
+      if ( parts.length == 2 && parts[0] === 'b' ) {
+        buttonPress(deviceData[index].currentPage, parts[1], 0, index)
+      }
+      break
     }
   }
 
   function buttonPress(page, component, event, index) {
-    //app.debug(`buttonPress: ${page} ${component} ${event} ${index}`)
-    if ( event == 00 ) {
+    app.debug(`buttonPress: ${page} ${component} ${event} ${index}`)
+    if ( event == 0 ) {
       const pageButtons = config.devices[index].pages[page].buttons
       if ( !_.isUndefined(pageButtons) ) {
         const button = pageButtons[component]
-        if ( !_.isUndefined(button) ) {
+        if ( !_.isUndefined(button)
+             && deviceData[index].changingPaths.indexOf(button.path) == -1 ) {
           let val = button.value
           if ( typeof val === 'function' ) {
             val = val(button.path)
           }
           app.debug('Setting %s to %o', button.path, val)
-          if ( button.type !== 'hs' )
-          {
-            write(index, `${button.objname}.bco=${config.buttonChangedColor}`)
+
+          if ( button.pictureObj
+               && !_.isUndefined(button.changingPicture) ) {
+            deviceData[index].changingPaths.push(button.path)
+            const pic = button.changingPicture(deviceData[index].currentMode, val)
+            write(index, `${button.pictureObj}.pic=${pic}`)
           }
+          
           app.putSelfPath(button.path, val, res => {
             app.debug(JSON.stringify(res))
+            let idx = deviceData[index].changingPaths.indexOf(button.path)
+            if ( idx != -1 ) {
+              deviceData[index].changingPaths.splice(idx, 1)
+            }
           })
         }
       }
@@ -329,7 +410,7 @@ module.exports = function(app) {
 
   function blankPage(index) {
     app.debug('Blank page')
-    config.devices[index].pages[currentPage].values.forEach(item => {
+    config.devices[index].pages[deviceData[index].currentPage].values.forEach(item => {
       let val = app.getSelfPath(item.path + '.value')
       if ( _.isUndefined(val) ) {
         if ( !_.isUndefined(item.unknown) || item.type == 'gauge' ) {
@@ -343,30 +424,53 @@ module.exports = function(app) {
   }
 
   function advancePage(index) {
-    let num = _.keys(config[index].pages).length
-    app.debug(`keys ${num}`)
-    let newPage = currentPage + 1
-    if ( newPage == num ) {
-      newPage = 0
+    console.log(`advancePage: ${index} ${JSON.stringify(deviceData)}`)
+    if ( deviceData[index].pagingPausedTime == 0
+         || Date.now() - deviceData[index].pagingPausedTime > options.devices[index].advancePagePause*1000)
+    {
+      deviceData[index].pagingPausedTime = 0
+      let num = _.keys(config.devices[index].pages).length
+      let newPage = deviceData[index].currentPage + 1
+      if ( newPage == num ) {
+        newPage = 0
+      }
+      deviceData[index].sentPage = true
+      write(index, `page ${newPage}`)
     }
-    write(index, `page ${newPage}`)
   }
 
   function setMode(index, mode) {
     if ( _.isUndefined(mode) ) {
       return
     }
-    if ( mode == currentMode ) {
-      return
+    if ( mode == deviceData[index].currentMode ) {
+      return false
     }
-    currentMode = mode
-    let color = mode === 'night' ? config.nightTextColor : config.dayTextColor
-    write(index, `sys0=${color}`)
-    color = mode === 'night' ? config.nightBarColor : config.dayBarColor
-    write(index, `sys1=${color}`)
-    write(index, `page ${currentPage}`)
-    write(index, `dim=${mode === 'night' ? options.nightModeDim : options.dayModeDim}`)
-    write(index, `sys3=${mode === 'night' ? 1 : 0}`)
+    deviceData[index].currentMode = mode
+
+    let colorVars = config.devices[index].colorVars || config.colorVars
+
+    _.keys(colorVars).forEach(varName => {
+      let color = colorVars[varName][mode]
+      if ( !_.isUndefined(color) ) {
+        write(index, `${varName}.val=${color}`)
+      }
+    })
+
+    let modeCommands = config.devices[index].modeCommands || config.modeCommands
+    if ( modeCommands ) {
+      modeCommands = modeCommands(mode)
+      modeCommands.forEach(command => {
+        write(index, command)
+      })
+    }
+
+    deviceData[index].sentPage = true
+    write(index, `page ${deviceData[index].currentPage}`) //cause a refresh
+    write(index, `dim=${mode === 'night' ? options.devices[index].nightModeDim : options.devices[index].dayModeDim}`)
+    
+    //write(index, `sys3=${mode === 'night' ? 1 : 0}`)
+    return true
   }
 
   function calculateMode() {
@@ -399,8 +503,9 @@ module.exports = function(app) {
     } else {
       mode = 'night'
     }
-    //return mode
-    return 'night'
+    //mode = 'night'
+    currentMode = mode
+    return mode
   }
 
   function toggle(path) {
@@ -422,6 +527,18 @@ module.exports = function(app) {
       res = res - 360
     }
     return res
+  }
+
+  function secondsToHoursMinutes(v) {
+    const hours = v / 3600;
+    const remainder = v - hours * 3600;
+    const mins = remainder / 60;
+    return `${hours.toFixed(0)}:${mins.toFixed(0)}`
+  }
+
+  function msToKnots(v)
+  {
+    return v * 1.94384
   }
   
   return plugin
