@@ -16,6 +16,7 @@
   "dependencies": {
     "decamelize": "^3.2.0",
     "lodash": "^4.17.15",
+    "moment": "^2.24.0",
     "serialport": "^7.1.5",
     "suncalc": "^1.8.0",
     "titleize": "^2.1.0"

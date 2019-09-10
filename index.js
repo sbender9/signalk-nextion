@@ -22,6 +22,7 @@ const titleize = require('titleize')
 const suncalc = require('suncalc')
 const fs = require('fs')
 const path = require('path')
+const moment = require('moment')
 
 module.exports = function(app) {
   var plugin = {
@@ -116,10 +117,8 @@ module.exports = function(app) {
       toggle,
       secondsToHoursMinutes,
       msToKnots,
-      getCurrentMode: () => {
-        app.debug(`currentMode: ${currentMode}`)
-        return currentMode
-      }
+      date,
+      getCurrentMode: () => { return currentMode }
     })
 
     if ( !options.devices ) {
@@ -189,10 +188,13 @@ module.exports = function(app) {
             setTimeout(() => {
               write(index, `thsp=${sleep}`)
               write(index, `thup=1`)
+              setMode(index, 'night')
 
-              deviceData[index].pagingInterval = setInterval(() => {
-                advancePage(index)
-              }, options.devices[index].advancePages * 1000)
+              if ( options.devices[index].advancePages ) {
+                deviceData[index].pagingInterval = setInterval(() => {
+                  advancePage(index)
+                }, options.devices[index].advancePages * 1000)
+              }
             }, 1000)
           }, 1000)
           
@@ -212,7 +214,7 @@ module.exports = function(app) {
     }
   }
 
-  function onClose() {
+  function onClose(usbDevice) {
     app.debug("close")
     setProviderError('Closed')
     scheduleReconnect(usbDevice, index)
@@ -424,7 +426,7 @@ module.exports = function(app) {
   }
 
   function advancePage(index) {
-    console.log(`advancePage: ${index} ${JSON.stringify(deviceData)}`)
+    //console.log(`advancePage: ${index} ${JSON.stringify(deviceData)}`)
     if ( deviceData[index].pagingPausedTime == 0
          || Date.now() - deviceData[index].pagingPausedTime > options.devices[index].advancePagePause*1000)
     {
@@ -443,6 +445,7 @@ module.exports = function(app) {
     if ( _.isUndefined(mode) ) {
       return
     }
+    currentMode = mode
     if ( mode == deviceData[index].currentMode ) {
       return false
     }
@@ -504,7 +507,6 @@ module.exports = function(app) {
       mode = 'night'
     }
     //mode = 'night'
-    currentMode = mode
     return mode
   }
 
@@ -539,6 +541,11 @@ module.exports = function(app) {
   function msToKnots(v)
   {
     return v * 1.94384
+  }
+
+  function date(v, format='MM/DD/YYYY') {
+    let dt = moment(v)
+    return dt.format(format)
   }
   
   return plugin
