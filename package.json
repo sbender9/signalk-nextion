@@ -1,6 +1,6 @@
 {
   "name": "signalk-nextion",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "SignalK Node Server Plugin that sends data to a Nextion Display",
   "main": "index.js",
   "scripts": {
