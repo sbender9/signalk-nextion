@@ -188,7 +188,7 @@ module.exports = (app, options, utils) => {
                     case 1:
                       return 3
                     default:
-                      return 13
+                      return 27
                     }
                   } else {
                     switch ( v ) {
@@ -203,7 +203,7 @@ module.exports = (app, options, utils) => {
                     }
                   }
                 },
-                unknown: utils.getCurrentMode() === 'day' ? 13 : 14
+                unknown: utils.getCurrentMode() === 'day' ? 27 : 13
               },
               {
                 objname: 'p1',
@@ -380,6 +380,20 @@ module.exports = (app, options, utils) => {
                 rangeHi: 30,
                 rangeLo: 0,
                 height: 81
+              },
+              {
+                objname: 't10',
+                type: 'txt',
+                path: 'navigation.datetime',
+                format: utils.date,
+                unknown: '--/--/--'
+              },
+              {
+                objname: 't11',
+                type: 'txt',
+                path: 'navigation.datetime',
+                format: v => (utils.date(v, 'hh:mm A')),
+                unknown: '--:--'
               },
             ]
           },
