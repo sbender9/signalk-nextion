@@ -257,24 +257,26 @@ module.exports = function(app) {
   function gotDelta(delta) {
     if ( delta.updates ) {
       delta.updates.forEach(update => {
-        update.values.forEach(vp => {
-          config.devices.forEach((device, index) => {
-            if ( !_.isUndefined(deviceData[index].currentPage) ) {
-              let items = device.pages[deviceData[index].currentPage].values.filter(item => {
-                return item.path == vp.path
-              })
-              items.forEach(item => {
-                displayItem(index, item, vp.value)
-              })
-              let auto = options.devices[index].autoNightMode
-              if ( vp.path == 'navigation.position' && (_.isUndefined(auto) ||  auto) ) {
-                if ( setMode(index, calculateMode()) ) {
-                  blankPage(index)
+        if ( update.values ) {
+          update.values.forEach(vp => {
+            config.devices.forEach((device, index) => {
+              if ( !_.isUndefined(deviceData[index].currentPage) ) {
+                let items = device.pages[deviceData[index].currentPage].values.filter(item => {
+                  return item.path == vp.path
+                })
+                items.forEach(item => {
+                  displayItem(index, item, vp.value)
+                })
+                let auto = options.devices[index].autoNightMode
+                if ( vp.path == 'navigation.position' && (_.isUndefined(auto) ||  auto) ) {
+                  if ( setMode(index, calculateMode()) ) {
+                    blankPage(index)
+                  }
                 }
               }
-            }
+            })
           })
-        })
+        }
       })
     }
   }
