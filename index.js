@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+//gh test
+
 const PLUGIN_ID = 'signalk-nextion'
 const SerialPort = require('serialport')
 const _ = require("lodash")
